@@ -1,0 +1,86 @@
+# systemfsoftware/.github -> .mergify.yml
+# Org-wide Mergify policy. Every repo's own .mergify.yml starts with `extends: .github`.
+# Inherited by consumers (local values win): defaults, merge_queue, merge_protections_settings,
+#   merge_protections, priority_rules, commands_restrictions.
+# NOT inherited: shared (YAML anchors) and scopes. Each repo declares its own queue_rules
+# because they carry that repo's CI check names.
+
+shared:
+  # MERGE AUTHORITY SWITCH. Exactly one of these two lines is live.
+  # Phase 1, while the review watcher is not yet posting review-gate:
+  kiro_gate: &kiro_gate "approved-reviews-by = kiro-systemf[bot]"
+  # Phase 2, once review-gate posts on every PR (comment out the line above, uncomment this one):
+  # kiro_gate: &kiro_gate "check-success = @kiro-systemf/review-gate"
+  not_queue_branch: &not_queue_branch "-head ~= ^mergify/merge-queue/"
+
+defaults:
+  queue_rule:
+    merge_method: squash
+    commit_message_format:
+      title: pr-title
+      body: pr-body
+    batch_size:
+      min: 1
+      max: 5
+    batch_max_wait_time: 1 minute
+    max_checks_retries: 1
+    branch_protection_injection_mode: queue
+
+merge_queue:
+  mode: serial
+  max_parallel_checks: 3
+  reset_on_external_merge: always
+  queue_controls_comment: false
+  status_comments: outcomes
+
+merge_protections_settings:
+  auto_merge_conditions:
+    - *kiro_gate
+    - -draft
+    - -label = hold
+  reporting_method: check-runs
+  post_comment: true
+
+merge_protections:
+  - name: Kiro merge authority
+    description: A PR merges only after Kiro approves it (phase 1) or the review bot's review-gate passes (phase 2).
+    if:
+      - *not_queue_branch
+    success_conditions:
+      - *kiro_gate
+      - "#changes-requested-reviews-by = 0"
+  - name: Conventional PR title
+    description: The squash commit takes the PR title, so the title must be a conventional commit.
+    if:
+      - *not_queue_branch
+    success_conditions:
+      - "title ~= ^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\\([^)]+\\))?!?: \\S"
+  - name: Hold label
+    description: The hold label keeps a PR out of main.
+    if:
+      - *not_queue_branch
+    success_conditions:
+      - -label = hold
+
+priority_rules:
+  - name: hotfix
+    conditions:
+      - label = hotfix
+    priority: 4500
+    allow_checks_interruption: true
+  - name: changesets release PR
+    conditions:
+      - head ~= ^changeset-release/
+    priority: high
+  - name: dependabot
+    conditions:
+      - author = dependabot[bot]
+    priority: low
+
+commands_restrictions:
+  queue:
+    conditions:
+      - sender-permission >= write
+  requeue:
+    conditions:
+      - sender-permission >= write
