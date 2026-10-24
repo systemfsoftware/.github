@@ -21,7 +21,7 @@ shared:
       - or:
           - dependabot-update-type = version-update:semver-patch
           - dependabot-update-type = version-update:semver-minor
-          - "title ~= (?i)\\bthe (minor-and-patch|minor|patch) group\\b"
+          - "title ~= (?i)\\bthe [a-z0-9@/._-]*(minor|patch)[a-z0-9@/._-]* group\\b"
 
 defaults:
   queue_rule:
