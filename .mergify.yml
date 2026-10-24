@@ -1,7 +1,7 @@
 # systemfsoftware/.github -> .mergify.yml
 # Org-wide Mergify policy. Every repo's own .mergify.yml starts with `extends: .github`.
 # Inherited by consumers (local values win): defaults, merge_queue, merge_protections_settings,
-#   merge_protections, priority_rules, commands_restrictions.
+#   merge_protections, pull_request_rules, priority_rules, commands_restrictions.
 # NOT inherited: shared (YAML anchors) and scopes. Each repo declares its own queue_rules
 # because they carry that repo's CI check names.
 
@@ -12,6 +12,16 @@ shared:
   # Phase 2, once review-gate posts on every PR (comment out the line above, uncomment this one):
   # kiro_gate: &kiro_gate "check-success = @kiro-systemf/review-gate"
   not_queue_branch: &not_queue_branch "-head ~= ^mergify/merge-queue/"
+  # Dependabot patch/minor bump: semver data from the Dependabot commit message, or the title of a
+  # Dependabot group that dependabot.yml restricts to minor+patch. A major bump never matches.
+  dependabot_non_major: &dependabot_non_major
+    and:
+      - author = dependabot[bot]
+      - dependabot-update-type != version-update:semver-major
+      - or:
+          - dependabot-update-type = version-update:semver-patch
+          - dependabot-update-type = version-update:semver-minor
+          - "title ~= (?i)\\bthe (minor-and-patch|minor|patch) group\\b"
 
 defaults:
   queue_rule:
@@ -35,7 +45,9 @@ merge_queue:
 
 merge_protections_settings:
   auto_merge_conditions:
-    - *kiro_gate
+    - or:
+        - *kiro_gate
+        - *dependabot_non_major
     - -draft
     - -label = hold
   reporting_method: check-runs
@@ -43,11 +55,13 @@ merge_protections_settings:
 
 merge_protections:
   - name: Kiro merge authority
-    description: A PR merges only after Kiro approves it (phase 1) or the review bot's review-gate passes (phase 2).
+    description: A PR merges only after Kiro approves it (phase 1) or the review bot's review-gate passes (phase 2). A Dependabot patch or minor bump skips the Kiro gate; a major bump still needs it.
     if:
       - *not_queue_branch
     success_conditions:
-      - *kiro_gate
+      - or:
+          - *kiro_gate
+          - *dependabot_non_major
       - "#changes-requested-reviews-by = 0"
   - name: Conventional PR title
     description: The squash commit takes the PR title, so the title must be a conventional commit.
@@ -61,6 +75,22 @@ merge_protections:
       - *not_queue_branch
     success_conditions:
       - -label = hold
+
+# Dependabot patch/minor bumps are approved once every check on the PR has finished green.
+# Branch protection and each repo's queue_rules still decide which checks must pass.
+pull_request_rules:
+  - name: Approve Dependabot patch and minor updates
+    conditions:
+      - *dependabot_non_major
+      - -draft
+      - -label = hold
+      - "#check-failure = 0"
+      - "#check-pending = 0"
+      - "#check-success >= 1"
+    actions:
+      review:
+        type: APPROVE
+        message: Dependabot patch or minor update with all checks passing.
 
 priority_rules:
   - name: hotfix
