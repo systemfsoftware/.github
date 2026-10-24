@@ -1,16 +1,42 @@
+# yaml-language-server: $schema=https://docs.mergify.com/mergify-configuration-schema.json
 # systemfsoftware/.github -> .mergify.yml
-# Org-wide Mergify policy. Every repo's own .mergify.yml starts with `extends: .github`.
-# Inherited by consumers (local values win): defaults, merge_queue, merge_protections_settings,
-#   merge_protections, priority_rules, commands_restrictions.
-# NOT inherited: shared (YAML anchors) and scopes. Each repo declares its own queue_rules
-# because they carry that repo's CI check names.
+#
+# Org-wide Mergify policy: the merge-queue pattern that already runs green in the org's
+# reference monorepo, adapted for inheritance (see docs/mergify-rollout.md).
+#
+# A repo opts in with a .mergify.yml whose first key is `extends: .github`.
+# Mergify merges rule lists BY NAME: a repo redeclares any rule below with the same
+# name to override it locally; every rule it does not redeclare is inherited as-is.
+#   Merged and inherited: defaults, merge_queue, merge_protections_settings,
+#                         merge_protections, priority_rules, queue_rules,
+#                         pull_request_rules, commands_restrictions.
+#   Local-only (never inherited): shared (YAML anchors), scopes.
+#
+# Routing: the unnamed `queue` action sends a PR to the FIRST queue rule whose
+# queue_conditions match, in file order: deploy-fix -> dependabot -> default -> merge-commit.
 
 shared:
-  # MERGE AUTHORITY SWITCH. Exactly one of these two lines is live.
+  # CI gates of the reference deployment, carried as the org baseline. Every repo whose
+  # checks are named differently MUST override the queue rules that use this anchor
+  # (same rule name, local file wins). Never guess check names: read them from the
+  # repo's latest PR run.
+  ci_checks: &ci_checks
+    - "check-success = checks / check"
+    - "check-success = deploy-gate"
+
+  # MERGE AUTHORITY SWITCH. Exactly one of the two kiro_gate lines is live.
   # Phase 1, while the review watcher is not yet posting review-gate:
   kiro_gate: &kiro_gate "approved-reviews-by = kiro-systemf[bot]"
-  # Phase 2, once review-gate posts on every PR (comment out the line above, uncomment this one):
+  # Phase 2, once review-gate posts on every PR (swap the comments):
   # kiro_gate: &kiro_gate "check-success = @kiro-systemf/review-gate"
+
+  review_gate: &review_gate
+    - *kiro_gate
+    - "#changes-requested-reviews-by = 0"
+
+  # Dependabot renders either as the app slug or as the bot login; match both.
+  dependabot_author: &dependabot_author "author ~= ^(app/dependabot|dependabot\\[bot\\])$"
+
   not_queue_branch: &not_queue_branch "-head ~= ^mergify/merge-queue/"
 
 defaults:
@@ -28,19 +54,152 @@ defaults:
 
 merge_queue:
   mode: serial
+  # At most 3 queue drafts run CI at once; batching below keeps the draft count (and
+  # runner hours) down.
   max_parallel_checks: 3
   reset_on_external_merge: always
   queue_controls_comment: false
   status_comments: outcomes
 
 merge_protections_settings:
-  auto_merge_conditions:
-    - *kiro_gate
-    - -draft
-    - -label = hold
   reporting_method: check-runs
   post_comment: true
 
+priority_rules:
+  # The PR that fixes a red deploy is tested first, interrupting drafts already running.
+  - name: deploy fix goes first
+    conditions:
+      - label = deploy-fix
+    priority: high
+    allow_checks_interruption: true
+  - name: changesets release PR
+    conditions:
+      - head ~= ^changeset-release/
+    priority: high
+  - name: dependabot
+    conditions:
+      - *dependabot_author
+    priority: low
+
+queue_rules:
+  # Queue order is priority between queues, so deploy-fix comes first. Never batched.
+  - name: deploy-fix
+    merge_method: squash
+    batch_size: 1
+    max_checks_retries: 1
+    checks_timeout: 60 min
+    # The squash commit is the PR title and body, which CI already checked on the PR.
+    commit_message_format:
+      title: pr-title
+      body: pr-body
+    queue_conditions:
+      - base = main
+      - -draft
+      - label = deploy-fix
+      - -label = queue/merge-commit
+      - -label = hold
+      - and: *review_gate
+      - and: *ci_checks
+    merge_conditions:
+      - and: *ci_checks
+
+  # Dependabot patch and minor updates: queue and merge with no human review once CI is
+  # green. Major updates fail `dependabot-update-type != version-update:semver-major`
+  # and fall through to `default`, which requires review.
+  - name: dependabot
+    merge_method: squash
+    batch_size:
+      min: 1
+      max: 5
+    batch_max_wait_time: 15 min
+    batch_max_failure_resolution_attempts: 2
+    max_checks_retries: 1
+    checks_timeout: 60 min
+    commit_message_format:
+      title: pr-title
+      body: pr-body
+    queue_conditions:
+      - base = main
+      - -draft
+      - -label = deploy-fix
+      - -label = queue/merge-commit
+      - -label = hold
+      - *dependabot_author
+      - dependabot-update-type != version-update:semver-major
+      - and: *ci_checks
+    merge_conditions:
+      - and: *ci_checks
+
+  # Up to 4 PRs share one draft; a failed batch is split at most twice before the
+  # culprit is ejected.
+  - name: default
+    merge_method: squash
+    batch_size:
+      min: 1
+      max: 4
+    batch_max_wait_time: 5 min
+    batch_max_failure_resolution_attempts: 2
+    max_checks_retries: 1
+    checks_timeout: 60 min
+    commit_message_format:
+      title: pr-title
+      body: pr-body
+    queue_conditions:
+      - base = main
+      - -draft
+      - -label = deploy-fix
+      - -label = queue/merge-commit
+      - -label = hold
+      - and: *review_gate
+      - and: *ci_checks
+    merge_conditions:
+      - and: *ci_checks
+
+  # Subtree, reformat and history PRs must land as a merge commit, never squashed.
+  # Never batched.
+  - name: merge-commit
+    merge_method: merge
+    batch_size: 1
+    max_checks_retries: 1
+    checks_timeout: 60 min
+    commit_message_format:
+      title: pr-title
+      body: pr-body
+    queue_conditions:
+      - base = main
+      - -draft
+      - label = queue/merge-commit
+      - -label = hold
+      - and: *review_gate
+      - and: *ci_checks
+    merge_conditions:
+      - and: *ci_checks
+
+# Queue entry: a PR enters a queue only through a queue action. With no queue name, it
+# goes to the first queue rule whose queue_conditions match; a queue_conditions miss
+# keeps it out.
+pull_request_rules:
+  - name: queue when ready
+    conditions:
+      - base = main
+    actions:
+      queue:
+  # Dependabot patch/minor PRs merge with no human review; the approval satisfies
+  # approval-requiring rulesets while CI stays the gate. Majors are excluded and stay
+  # on the reviewed `default` path.
+  - name: approve dependabot patch and minor updates
+    conditions:
+      - base = main
+      - *dependabot_author
+      - dependabot-update-type != version-update:semver-major
+    actions:
+      review:
+        type: APPROVE
+
+# Org-wide gates on every merge Mergify performs. Mergify enforces them on its own
+# merges even when the check is not required in GitHub; each repo's ruleset must
+# require the `Mergify Merge Protections` check to also block button-click merges
+# (zero manual merges).
 merge_protections:
   - name: Kiro merge authority
     description: A PR merges only after Kiro approves it (phase 1) or the review bot's review-gate passes (phase 2).
@@ -61,21 +220,6 @@ merge_protections:
       - *not_queue_branch
     success_conditions:
       - -label = hold
-
-priority_rules:
-  - name: hotfix
-    conditions:
-      - label = hotfix
-    priority: 4500
-    allow_checks_interruption: true
-  - name: changesets release PR
-    conditions:
-      - head ~= ^changeset-release/
-    priority: high
-  - name: dependabot
-    conditions:
-      - author = dependabot[bot]
-    priority: low
 
 commands_restrictions:
   queue:
