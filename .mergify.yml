@@ -91,6 +91,28 @@ pull_request_rules:
       review:
         type: APPROVE
         message: Dependabot patch or minor update with all checks passing.
+  # approved-reviews-by isn't bound to a commit, and most repos here have no ruleset that dismisses a stale review, so an
+  # approval has to end when the branch moves or the rule below would merge commits nobody read.
+  - name: Dismiss approvals on new commits
+    conditions:
+      - *not_queue_branch
+    actions:
+      dismiss_reviews:
+        approved: true
+        changes_requested: false
+  # Approval is the whole merge decision: nobody posts a command. queue picks the repo's first queue whose
+  # queue_conditions match, and a miss keeps the PR out until they do. Dependabot is left out on purpose, so it stays
+  # as it was: approved here, and queued only by a command.
+  - name: Queue when approved
+    conditions:
+      - base = main
+      - *not_queue_branch
+      - *kiro_gate
+      - "#changes-requested-reviews-by = 0"
+      - -draft
+      - -label = hold
+    actions:
+      queue:
 
 priority_rules:
   - name: hotfix
@@ -107,10 +129,15 @@ priority_rules:
       - author = dependabot[bot]
     priority: low
 
+# kiro-systemf is a GitHub App, not a collaborator, so it can never meet sender-permission and has to be named.
 commands_restrictions:
   queue:
     conditions:
-      - sender-permission >= write
+      - or:
+          - sender-permission >= write
+          - sender = kiro-systemf[bot]
   requeue:
     conditions:
-      - sender-permission >= write
+      - or:
+          - sender-permission >= write
+          - sender = kiro-systemf[bot]
