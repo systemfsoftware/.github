@@ -35,6 +35,15 @@ defaults:
     batch_max_wait_time: 1 minute
     max_checks_retries: 1
     branch_protection_injection_mode: queue
+  # Subtree-queue convention (ruling 9: subtree PRs merge with a merge commit, never a squash).
+  # Each consumer declares a `subtree` queue BEFORE `default` with merge_method: merge, whose
+  # queue_conditions are the two trailer conditions from the "Subtree claim needs subtree history"
+  # protection below plus that repo's own checks, and extends `default`'s queue_conditions with
+  # three exclusions: the negated dir-trailer condition, the negated claim-title regex from that
+  # same protection, and the negated added/modified files under the repo's declared subtree
+  # prefixes. Pure subtree removals stay exempt (removed-files never matches the third
+  # exclusion). Recognition reads the commits themselves; titles and labels never grant the
+  # merge-commit path.
 
 merge_queue:
   mode: serial
@@ -75,6 +84,14 @@ merge_protections:
       - *not_queue_branch
     success_conditions:
       - -label = hold
+  - name: Subtree claim needs subtree history
+    description: A PR whose title claims subtree work (add/pull/update/sync/vendor/refresh/import) must carry real git-subtree trailers in its commits. Without them the PR matches no queue in repos that follow the subtree-queue convention and cannot merge at all — a squash would drop the split history ruling 9 requires. See docs/plans for the convention.
+    if:
+      - *not_queue_branch
+      - "title ~= (?i)\\b(add|pull|update|sync|vendor|refresh|import)\\b[^.]*\\bsubtrees?\\b|\\bsubtrees?\\b[^.]*(\\badd\\b|\\bpull\\b|\\bupdate\\b|\\bsync\\b|\\bvendor\\b|\\brefresh\\b|\\bimport\\b)"
+    success_conditions:
+      - "commits[*].commit_message ~= (?m)^git-subtree-dir: \\S+$"
+      - "commits[*].commit_message ~= (?m)^git-subtree-split: [0-9a-f]{40}$"
 
 # Dependabot patch/minor bumps are approved once every check on the PR has finished green.
 # Branch protection and each repo's queue_rules still decide which checks must pass.
