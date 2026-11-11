@@ -8,7 +8,12 @@
 shared:
   # MERGE AUTHORITY SWITCH. Exactly one of these two lines is live.
   # Phase 1, while the review watcher is not yet posting review-gate:
-  kiro_gate: &kiro_gate "approved-reviews-by = kiro-systemf[bot]"
+  # A PR kiro-systemf opened itself (conductors open through kiro-gh) cannot carry its own approval, so the lead's
+  # (systemfsoftware-bot) counts as well; last-push approval still pins it to the current head.
+  kiro_gate: &kiro_gate
+    or:
+      - "approved-reviews-by = kiro-systemf[bot]"
+      - "approved-reviews-by = systemfsoftware-bot"
   # Phase 2, once review-gate posts on every PR (comment out the line above, uncomment this one):
   # kiro_gate: &kiro_gate "check-success = @kiro-systemf/review-gate"
   not_queue_branch: &not_queue_branch "-head ~= ^mergify/merge-queue/"
