@@ -12,6 +12,16 @@ shared:
   # Phase 2, once review-gate posts on every PR (comment out the line above, uncomment this one):
   # kiro_gate: &kiro_gate "check-success = @kiro-systemf/review-gate"
   not_queue_branch: &not_queue_branch "-head ~= ^mergify/merge-queue/"
+  # Mergify has no attribute for commit parents. Recognition = trailer text + `linear-history`; see README, "Subtree PRs".
+  subtree_dir_trailer: &subtree_dir_trailer 'commits[*].commit_message ~= (?m)^git-subtree-dir: \S+$'
+  subtree_trailers: &subtree_trailers 'commits[*].commit_message ~= (?ms)\A(?=.*^git-subtree-dir: \S+$)(?=.*^git-subtree-split: [0-9a-f]{40}$)'
+  # Removal-only, config-only and docs-only PRs are not claims.
+  subtree_claim: &subtree_claim
+    and:
+      - 'title ~= (?i)\b(add|pull|update|sync|vendor|refresh|import|bump|upgrade)\b.*\bsubtrees?\b|\bsubtrees?\b.*\b(add|pull|update|sync|vendor|refresh|import|bump|upgrade)\b'
+      - or:
+          - 'added-files ~= ^(?!\.mergify\.yml$|README\.md$|docs/|\.github/)'
+          - 'modified-files ~= ^(?!\.mergify\.yml$|README\.md$|docs/|\.github/)'
   # Dependabot patch/minor bump: semver data from the Dependabot commit message, or the title of a
   # Dependabot group that dependabot.yml restricts to minor+patch. A major bump never matches.
   dependabot_non_major: &dependabot_non_major
@@ -35,15 +45,7 @@ defaults:
     batch_max_wait_time: 1 minute
     max_checks_retries: 1
     branch_protection_injection_mode: queue
-  # Subtree-queue convention (ruling 9: subtree PRs merge with a merge commit, never a squash).
-  # Each consumer declares a `subtree` queue BEFORE `default` with merge_method: merge, whose
-  # queue_conditions are the two trailer conditions from the "Subtree claim needs subtree history"
-  # protection below plus that repo's own checks, and extends `default`'s queue_conditions with
-  # three exclusions: the negated dir-trailer condition, the negated claim-title regex from that
-  # same protection, and the negated added/modified files under the repo's declared subtree
-  # prefixes. Pure subtree removals stay exempt (removed-files never matches the third
-  # exclusion). Recognition reads the commits themselves; titles and labels never grant the
-  # merge-commit path.
+  # Consumer queue convention for subtree PRs (merge commit, never squash or rebase): see README, "Subtree PRs".
 
 merge_queue:
   mode: serial
@@ -84,14 +86,16 @@ merge_protections:
       - *not_queue_branch
     success_conditions:
       - -label = hold
-  - name: Subtree claim needs subtree history
-    description: A PR whose title claims subtree work (add/pull/update/sync/vendor/refresh/import) must carry real git-subtree trailers in its commits. Without them the PR matches no queue in repos that follow the subtree-queue convention and cannot merge at all — a squash would drop the split history ruling 9 requires. See docs/plans for the convention.
+  - name: Subtree PRs need subtree history
+    description: Applies to a PR that claims subtree work (a subtree verb and the word subtree in the title, on a PR that adds or modifies a file outside the Mergify config, README, docs/ and .github/) and to any PR whose commits carry a git-subtree-dir trailer. Such a PR must carry git-subtree-dir and git-subtree-split trailers in one commit message and a non-linear history, so a rebased or squashed subtree PR fails. Mergify cannot read commit parents, so this does not prove the history is a genuine git subtree history. It blocks merges Mergify performs; a merge outside Mergify is blocked only where a ruleset requires the Mergify Merge Protections check. The merge method itself is set by the queue convention described in the README.
     if:
       - *not_queue_branch
-      - "title ~= (?i)\\b(add|pull|update|sync|vendor|refresh|import)\\b[^.]*\\bsubtrees?\\b|\\bsubtrees?\\b[^.]*(\\badd\\b|\\bpull\\b|\\bupdate\\b|\\bsync\\b|\\bvendor\\b|\\brefresh\\b|\\bimport\\b)"
+      - or:
+          - *subtree_claim
+          - *subtree_dir_trailer
     success_conditions:
-      - "commits[*].commit_message ~= (?m)^git-subtree-dir: \\S+$"
-      - "commits[*].commit_message ~= (?m)^git-subtree-split: [0-9a-f]{40}$"
+      - *subtree_trailers
+      - -linear-history
 
 # Dependabot patch/minor bumps are approved once every check on the PR has finished green.
 # Branch protection and each repo's queue_rules still decide which checks must pass.
