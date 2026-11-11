@@ -15,13 +15,13 @@ shared:
   # Mergify has no attribute for commit parents. Recognition = trailer text + `linear-history`; see README, "Subtree PRs".
   subtree_dir_trailer: &subtree_dir_trailer 'commits[*].commit_message ~= (?m)^git-subtree-dir: \S+$'
   subtree_trailers: &subtree_trailers 'commits[*].commit_message ~= (?ms)\A(?=.*^git-subtree-dir: \S+$)(?=.*^git-subtree-split: [0-9a-f]{40}$)'
-  # Removal-only, config-only and docs-only PRs are not claims.
   subtree_claim: &subtree_claim
     and:
-      - 'title ~= (?i)\b(add|pull|update|sync|vendor|refresh|import|bump|upgrade)\b.*\bsubtrees?\b|\bsubtrees?\b.*\b(add|pull|update|sync|vendor|refresh|import|bump|upgrade)\b'
+      - 'title ~= (?i)(?<![\w.-])(add|pull|update|sync|vendor|vendored|vendoring|refresh|import|bump|upgrade)(?!\.?[\w-])'
+      - 'title ~= (?i)(?<![\w.-])subtrees?(?!\.?[\w-])'
       - or:
-          - 'added-files ~= ^(?!\.mergify\.yml$|README\.md$|docs/|\.github/)'
-          - 'modified-files ~= ^(?!\.mergify\.yml$|README\.md$|docs/|\.github/)'
+          - 'added-files ~= ^(vendor|vendored|third[_-]party|external|repos|subtrees?)/'
+          - 'modified-files ~= ^(vendor|vendored|third[_-]party|external|repos|subtrees?)/'
   # Dependabot patch/minor bump: semver data from the Dependabot commit message, or the title of a
   # Dependabot group that dependabot.yml restricts to minor+patch. A major bump never matches.
   dependabot_non_major: &dependabot_non_major
@@ -87,7 +87,7 @@ merge_protections:
     success_conditions:
       - -label = hold
   - name: Subtree PRs need subtree history
-    description: Applies to a PR that claims subtree work (a subtree verb and the word subtree in the title, on a PR that adds or modifies a file outside the Mergify config, README, docs/ and .github/) and to any PR whose commits carry a git-subtree-dir trailer. Such a PR must carry git-subtree-dir and git-subtree-split trailers in one commit message and a non-linear history, so a rebased or squashed subtree PR fails. Mergify cannot read commit parents, so this does not prove the history is a genuine git subtree history. It blocks merges Mergify performs; a merge outside Mergify is blocked only where a ruleset requires the Mergify Merge Protections check. The merge method itself is set by the queue convention described in the README.
+    description: Applies to a PR that claims subtree work (a title with a vendoring verb and the word subtree, not inside a hyphenated or dotted name, on a PR that adds or modifies a file under vendor/, vendored/, third_party/, third-party/, external/, repos/, subtree/ or subtrees/) and to any PR whose commits carry a git-subtree-dir trailer. Such a PR must carry git-subtree-dir and git-subtree-split trailers in one commit message and a non-linear history, so a rebased or squashed subtree PR fails. Mergify cannot read commit parents, so this does not prove the history is a genuine git subtree history. It blocks merges Mergify performs; a merge outside Mergify is blocked only where a ruleset requires the Mergify Merge Protections check. The merge method is chosen by each repo's queues (see the README); this file declares none.
     if:
       - *not_queue_branch
       - or:
