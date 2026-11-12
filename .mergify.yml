@@ -41,9 +41,6 @@ shared:
 defaults:
   queue_rule:
     merge_method: squash
-    commit_message_format:
-      title: pr-title
-      body: pr-body
     batch_size:
       min: 1
       max: 5
@@ -91,6 +88,18 @@ merge_protections:
       - *not_queue_branch
     success_conditions:
       - -label = hold
+  - name: Owner approves shared config and tooling
+    description: A PR that touches CI or Mergify config, the Nix flake, an API report or a tool config (tsconfig, vitest, oxlint, biome, stryker) needs the owner's approval, whoever wrote it. Kiro's approval alone does not cover these files.
+    if:
+      - *not_queue_branch
+      - or:
+          - 'files ~= ^\.github/'
+          - 'files ~= ^\.mergify\.yml$'
+          - 'files ~= (^|/)etc/.*\.api\.md$'
+          - 'files ~= ^flake\.(nix|lock)$'
+          - 'files ~= (^|/)(tsconfig[^/]*|vitest\.config[^/]*|\.?oxlint[^/]*|biome\.jsonc?|stryker\.config[^/]*)$'
+    success_conditions:
+      - "approved-reviews-by = ryanleecode"
   - name: Subtree PRs need subtree history
     description: Applies to a PR that claims subtree work (a title with a vendoring verb and the word subtree, not inside a hyphenated or dotted name, on a PR that adds or modifies a file under vendor/, vendored/, third_party/, third-party/, external/, repos/, subtree/ or subtrees/) and to any PR whose commits carry a git-subtree-dir trailer. Such a PR must carry git-subtree-dir and git-subtree-split trailers in one commit message and a non-linear history, so a rebased or squashed subtree PR fails. Mergify cannot read commit parents, so this does not prove the history is a genuine git subtree history. It blocks merges Mergify performs; a merge outside Mergify is blocked only where a ruleset requires the Mergify Merge Protections check. The merge method is chosen by each repo's queues (see the README); this file declares none.
     if:
@@ -141,15 +150,23 @@ pull_request_rules:
       queue:
 
 priority_rules:
+  # A red main is fixed first. allow_checks_interruption lets the fix jump the checks already running.
+  - name: fix main
+    conditions:
+      - label = fix-main
+    priority: high
+    allow_checks_interruption: true
+  # The version packages PR, opened by github-actions[bot] on changeset-release/main (systemfsoftware/discern #13).
+  - name: changesets release PR
+    conditions:
+      - author = github-actions[bot]
+      - head ~= ^changeset-release/
+    priority: 2500
   - name: hotfix
     conditions:
       - label = hotfix
     priority: 4500
     allow_checks_interruption: true
-  - name: changesets release PR
-    conditions:
-      - head ~= ^changeset-release/
-    priority: high
   - name: dependabot
     conditions:
       - author = dependabot[bot]
