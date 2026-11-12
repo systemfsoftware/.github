@@ -78,3 +78,10 @@ It fails unless the two tests above pass. A removal-only PR is not a claim. Merg
 ### What stays open
 
 Mergify does not stop a merge made outside it. A user with write access can still squash from the GitHub UI or API. Requiring the `Mergify Merge Protections` check in a ruleset blocks that merge only for PRs where the protection is active.
+
+## Stacked PRs
+
+Build a native GitHub stack with `gh stack`. Land it with `@mergifyio queue` on the top PR. A stack lands in one merge only when the queue rule has no `commit_message_format` or `commit_message_template`, so `defaults.queue_rule` sets none. Each repo's squash default is PR title and PR body, so the squash commit keeps the same title and body.
+
+- Never run `gh stack rebase` or `gh stack sync` after review. Both force-push the branches and drop the approvals.
+- Put review fixes in as new commits, then merge each parent branch up into its child.
