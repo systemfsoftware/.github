@@ -41,9 +41,8 @@ shared:
 defaults:
   queue_rule:
     merge_method: squash
-    commit_message_format:
-      title: pr-title
-      body: pr-body
+    # No commit_message_format: a GitHub-native stack lands in one merge only when its queue rule has none (Mergify stacks docs).
+    # Squash title and body then follow each repo's squash setting (COMMIT_OR_PR_TITLE, COMMIT_MESSAGES by default).
     batch_size:
       min: 1
       max: 5
