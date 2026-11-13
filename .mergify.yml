@@ -15,7 +15,7 @@ shared:
       - "approved-reviews-by = kiro-systemf[bot]"
       - "approved-reviews-by = systemfsoftware-bot"
   # Phase 2, once review-gate posts on every PR (comment out the line above, uncomment this one):
-  # review_gate: &review_gate "check-success = @kiro-systemf/review-gate"
+  # review_gate: &review_gate "check-success = <review-gate check>"
   not_queue_branch: &not_queue_branch "-head ~= ^mergify/merge-queue/"
   # Mergify has no attribute for commit parents. Recognition = trailer text + `linear-history`; see README, "Subtree PRs".
   subtree_dir_trailer: &subtree_dir_trailer 'commits[*].commit_message ~= (?m)^git-subtree-dir: \S+$'
