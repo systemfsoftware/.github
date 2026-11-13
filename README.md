@@ -39,7 +39,7 @@ What follows for subtrees:
 
 ### What enforces the merge method
 
-The `merge_method` of the queue the PR matches. This file declares no queue, so on its own it chooses no merge method: SYS-1246 is enforced in a repo only once that repo's own `queue_rules` follow the convention below. Put `subtree` before `default`; the first queue whose `queue_conditions` match wins, and a PR matching none is not queued.
+The `merge_method` of the queue the PR matches. This file declares no queue, so on its own it chooses no merge method: the subtree merge-commit rule holds in a repo only once that repo's own `queue_rules` follow the convention below. Put `subtree` before `default`; the first queue whose `queue_conditions` match wins, and a PR matching none is not queued.
 
 ```yaml
 queue_rules:
