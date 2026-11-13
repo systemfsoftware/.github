@@ -8,14 +8,14 @@
 shared:
   # MERGE AUTHORITY SWITCH. Exactly one of these two lines is live.
   # Phase 1, while the review watcher is not yet posting review-gate:
-  # A PR kiro-systemf opened itself (conductors open through kiro-gh) cannot carry its own approval, so the lead's
+  # A PR the review app opened itself cannot carry its own approval, so the maintainer bot's
   # (systemfsoftware-bot) counts as well; last-push approval still pins it to the current head.
-  kiro_gate: &kiro_gate
+  review_gate: &review_gate
     or:
       - "approved-reviews-by = kiro-systemf[bot]"
       - "approved-reviews-by = systemfsoftware-bot"
   # Phase 2, once review-gate posts on every PR (comment out the line above, uncomment this one):
-  # kiro_gate: &kiro_gate "check-success = @kiro-systemf/review-gate"
+  # review_gate: &review_gate "check-success = @kiro-systemf/review-gate"
   not_queue_branch: &not_queue_branch "-head ~= ^mergify/merge-queue/"
   # Mergify has no attribute for commit parents. Recognition = trailer text + `linear-history`; see README, "Subtree PRs".
   subtree_dir_trailer: &subtree_dir_trailer 'commits[*].commit_message ~= (?m)^git-subtree-dir: \S+$'
@@ -59,7 +59,7 @@ merge_queue:
 merge_protections_settings:
   auto_merge_conditions:
     - or:
-        - *kiro_gate
+        - *review_gate
         - *dependabot_non_major
     - -draft
     - -label = hold
@@ -67,13 +67,13 @@ merge_protections_settings:
   post_comment: true
 
 merge_protections:
-  - name: Kiro merge authority
-    description: A PR merges only after Kiro approves it (phase 1) or the review bot's review-gate passes (phase 2). A Dependabot patch or minor bump skips the Kiro gate; a major bump still needs it.
+  - name: Merge authority
+    description: A PR merges only after the review app approves it (phase 1) or the review bot's review-gate passes (phase 2). A Dependabot patch or minor bump skips the review gate; a major bump still needs it.
     if:
       - *not_queue_branch
     success_conditions:
       - or:
-          - *kiro_gate
+          - *review_gate
           - *dependabot_non_major
       - "#changes-requested-reviews-by = 0"
   - name: Conventional PR title
@@ -88,8 +88,8 @@ merge_protections:
       - *not_queue_branch
     success_conditions:
       - -label = hold
-  - name: Owner approves shared config and tooling
-    description: A PR that touches CI or Mergify config, the Nix flake, an API report or a tool config (tsconfig, vitest, oxlint, biome, stryker) needs the owner's approval, whoever wrote it. Kiro's approval alone does not cover these files.
+  - name: Repository owner approves shared config and tooling
+    description: A PR that touches CI or Mergify config, the Nix flake, an API report or a tool config (tsconfig, vitest, oxlint, biome, stryker) needs the repository owner's approval, whoever wrote it. The review app's approval alone does not cover these files.
     if:
       - *not_queue_branch
       - or:
@@ -142,7 +142,7 @@ pull_request_rules:
     conditions:
       - base ~= ^(main|master)$
       - *not_queue_branch
-      - *kiro_gate
+      - *review_gate
       - "#changes-requested-reviews-by = 0"
       - -draft
       - -label = hold
@@ -172,7 +172,7 @@ priority_rules:
       - author = dependabot[bot]
     priority: low
 
-# kiro-systemf is a GitHub App, not a collaborator, so it can never meet sender-permission and has to be named.
+# The review app is a GitHub App, not a collaborator, so it can never meet sender-permission and has to be named.
 commands_restrictions:
   queue:
     conditions:
