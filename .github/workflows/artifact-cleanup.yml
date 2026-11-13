@@ -1,0 +1,74 @@
+name: Artifact cleanup
+
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+# One run at a time: two overlapping runs would race on the same deletes.
+concurrency:
+  group: artifact-cleanup
+  cancel-in-progress: false
+
+jobs:
+  closed-pull-request-artifacts:
+    name: closed and merged pull requests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Mint the cleanup App's installation token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.ARTIFACT_CLEANUP_APP_ID }}
+          private-key: ${{ secrets.ARTIFACT_CLEANUP_APP_PRIVATE_KEY }}
+          owner: systemfsoftware
+          permission-actions: write
+          permission-contents: read
+          permission-pull-requests: read
+      - name: Delete artifacts of closed and merged pull requests
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ORG: systemfsoftware
+        run: |
+          set -euo pipefail
+          : "${GH_TOKEN:?the cleanup App token was not minted}"
+          work="$(mktemp -d)"
+
+          # One repo: list its closed or merged PR head branches once, then write the artifacts whose run's branch
+          # is among them as "repo<TAB>id<TAB>bytes" lines. Artifacts with no branch are kept.
+          plan_repo() {
+            local repo="$1" out="$work/${1//\//_}"
+            gh api "repos/$repo/pulls?state=closed&per_page=100" --paginate \
+              --jq ".[] | select(.head.repo.owner.login == \"$ORG\") | .head.ref" | sort -u > "$out.closed"
+            gh api "repos/$repo/actions/artifacts?per_page=100" --paginate \
+              --jq '.artifacts[] | [((.workflow_run.head_branch // "") | if . == "" then "-" else . end), .id, (.size_in_bytes // 0)] | @tsv' \
+              > "$out.artifacts"
+            awk -F'\t' -v repo="$repo" 'NR == FNR { closed[$0] = 1; next } ($1 in closed) { print repo "\t" $2 "\t" $3 }' \
+              "$out.closed" "$out.artifacts" > "$out.delete"
+            echo "$(wc -l < "$out.artifacts") $(wc -l < "$out.delete")" > "$out.counts"
+          }
+          export -f plan_repo
+          export work
+
+          # Repos are planned 4 at a time, and deletes run 8 at a time, under GitHub's concurrent-request limit.
+          gh api "orgs/$ORG/repos?per_page=100" --paginate --jq '.[] | select(.private == true) | .full_name' \
+            | xargs -r -P 4 -I{} bash -c 'plan_repo "$1"' _ {}
+          cat "$work"/*.delete 2>/dev/null | cut -f1,2 \
+            | xargs -r -P 8 -n 2 sh -c 'gh api -X DELETE "repos/$0/actions/artifacts/$1" --silent || echo "delete failed: $0 $1" >&2'
+
+          total=0; deleted=0; reclaimed=0
+          for c in "$work"/*.counts; do read -r t d < "$c"; total=$((total + t)); deleted=$((deleted + d)); done
+          reclaimed="$(cat "$work"/*.delete 2>/dev/null | awk -F'\t' '{ s += $3 } END { print s + 0 }')"
+          {
+            echo '**Artifacts deleted (runs of closed or merged pull requests)**'
+            echo
+            echo '| repo | deleted | bytes |'
+            echo '|---|---|---|'
+            cat "$work"/*.delete 2>/dev/null | awk -F'\t' '{ n[$1]++; b[$1] += $3 } END { for (r in n) print "| `" r "` | " n[r] " | " b[r] " |" }'
+            echo
+            echo "Deleted $deleted of $total artifacts ($reclaimed bytes reclaimed)."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=artifact-cleanup::Deleted $deleted of $total artifacts, reclaimed $reclaimed bytes"
