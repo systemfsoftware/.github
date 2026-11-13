@@ -83,7 +83,7 @@ merge_protections:
     success_conditions:
       - "title ~= ^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\\([^)]+\\))?!?: \\S"
   - name: Hold label
-    description: The hold label keeps a PR out of main.
+    description: The hold label keeps a PR out of the default branch.
     if:
       - *not_queue_branch
     success_conditions:
@@ -140,7 +140,7 @@ pull_request_rules:
   # as it was: approved here, and queued only by a command.
   - name: Queue when approved
     conditions:
-      - base = main
+      - base ~= ^(main|master)$
       - *not_queue_branch
       - *kiro_gate
       - "#changes-requested-reviews-by = 0"
