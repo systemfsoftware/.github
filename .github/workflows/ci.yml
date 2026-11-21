@@ -1,7 +1,7 @@
 name: CI
 
 # One job on every pull request, with no path filter, so the required `check` is emitted for every change, docs-only
-# ones included. It parses every workflow and config file in the repository as YAML.
+# ones included. It fails on any YAML file that is empty, does not parse or repeats a key.
 on:
   push:
     branches: [main]
@@ -24,16 +24,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Every workflow and config file parses as YAML
-        run: |
-          python3 - <<'PY'
-          import pathlib, sys, yaml
-          failed = False
-          for path in sorted([*pathlib.Path('.github').rglob('*.y*ml'), *pathlib.Path('.').glob('*.y*ml')]):
-              try:
-                  list(yaml.safe_load_all(path.read_text()))
-              except yaml.YAMLError as error:
-                  failed = True
-                  print(f'{path}: {error}')
-          sys.exit(1 if failed else 0)
-          PY
+      - name: Install PyYAML
+        run: python3 -m pip install --user 'PyYAML==6.0.2'
+      - name: Every YAML file parses, is not empty and repeats no key
+        run: python3 .github/scripts/check-yaml.py .
